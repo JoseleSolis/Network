@@ -5,22 +5,6 @@ class Device:
         self.isSending = 0
         self.bitToSend = 0
         self.ports = [None]*pNumber
-    #def networkOf(self):
-    #    if(father[self.id] != self.id):
-    #        father[self.id] = devices[father[self.id]].networkOf()
-    #    return father[self.id]
-    #def merge(self,x):
-    #    selfR = self.networkOf()
-    #    xR = x.networkOf()
-    #    if(selfR == xR):
-    #        return
-    #    if(rank[selfR] < rank[xR]):
-    #        father[selfR] = xR
-    #    elif(rank[selfR] > rank[xR]):
-    #        father[xR] = selfR
-    #    else:
-    #        father[xR] = selfR
-    #        rank[selfR] +=1
 class Hub(Device):
     def __init__(self, name, pNumber,id):
         super().__init__(name, pNumber,id)
