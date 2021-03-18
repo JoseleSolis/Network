@@ -1,18 +1,23 @@
 import classDef as myClass
-
+from random import randint 
 idCount = 0
-mySet = myClass.Set()
+mySet = myClass.Set() 
 
-wannaSend = []   #todos los hosts q recibieron instruccion de enviar y aun no han finalizado de mandar todo el data
-actualSendingHosts = []   #los hosts q estan enviando por el canal junto con el tiempo que llevan enviando
+
+sendDevices = []
 
 def main():
+        
+    signalTime = 3
+    sending = []
+    chosenSender = None
+
     f = open('script.txt','r') 
     lines = [line.split() for line in f]
     f.close()
     time = 0
-    while(len(lines)):
-       if(int(lines[0][0]) == time):
+    while(len(lines) or len(sendDevices)):
+       while(len(lines) and int(lines[0][0]) == time):
            instruction = lines.pop(0)
            if(instruction[1] == "create"):
                create(instruction)
@@ -22,103 +27,152 @@ def main():
                disconnect(instruction)
            else:
                send(instruction)
-       else:
-           time+=1    
-    
+       
+       
+
+       if(len(sendDevices)):
+         
+           tempVisited = [False]*len(sendDevices)
+           tempList = []
+           for i in range(len(sendDevices)):    # el segundo for encuentra los dispositivos q quieren enviar y estan en la misma subred del i-esimo dispositivo escogido en el primer for
+               if not tempVisited[i] and not sending.count(sendDevices[i]):                                                         
+                   tempList.append(sendDevices[i])
+                   iNetwork = mySet.listOf(sendDevices[i])
+                    #si este dispositivo se encuentra en la red de otro elegido previamente a enviar, entonces este no puede enviar
+                   mustContinue = False
+                   for device in sending:
+                       if iNetwork.count(device):    
+                           mustContinue = True
+                           break
+                   if mustContinue:
+                        continue                           
+
+                   tempVisited[i] = True
+                   for j in range(len(sendDevices)):
+                       if not tempVisited[j] and iNetwork.count(sendDevices[j]):
+                           tempList.append(sendDevices[j])
+                    
+                    #elegir un dispositivo aleatorio a enviar por cada subred
+                   chosenSender = tempList[randint(0,len(tempList)-1)]
+                   chosenSender.states[0] = 'sending'
+                   chosenSender.valueInChannel = int(chosenSender.dataToSend.pop(0))
+                   chosenSender.collision = 'ok' if len(tempList)==1 else 'collision'
+                   chosenSender.timeSending = signalTime
+                   
+                   sending.append(chosenSender)
+          
+           for device in sending:   #cuando se llega a este punto todos los q pertenecen a sending son los que tienen q enviar
+               device.timeSending -= 1
+               device.send()
+               if device.timeSending == 0:
+                   sending.remove(device)    
+                   if len(device.dataToSend) == 0:
+                       sendDevices.remove(device) 
+                       dfs_disconnect(device)
+        
+       for subNetwork in mySet.Devices:
+           for device in subNetwork:
+               s = open(device.name+'.txt','a+')
+               for i in range(len(device.ports)):
+                   if isinstance(device,myClass.Host):
+                       print(str(time)+'  '+ device.name +'_'+ str(i+1) +'  '+ device.states[i] +'  '+ str(device.valueInChannel) +'  '+ device.collision, file = s)
+                   else:
+                       print(str(time)+'  '+ device.name +'_'+ str(i+1) +'  '+ device.states[i] +'  '+ str(device.valueInChannel),file = s)
+                   
+       time+=1
+
+def dfs_disconnect(device):
+    device.valueInChannel = -1
+    if isinstance(device,myClass.Host):
+        device.collision = ' '
+    for i in range(len(device.ports)):
+        if device.states[i] is not 'null':
+            device.states[i] = 'null'
+            dfs_disconnect(device.ports[i])
+
+
+
+
 def create(instruction):
     global idCount
     if(instruction[2] == "host"):
         mySet.add(myClass.Host(instruction[3],idCount))
-    else:
+    else:        
         mySet.add(myClass.Hub(instruction[3],int(instruction[4]),idCount))
-    
     idCount+=1
     return
+
+
 def connect(instruction):
     port_1 = instruction[2].split('_')
     port_2 = instruction[3].split('_')
     device_1 = None
     device_2 = None
-    for i in mySet.Devices:
-        if(i.name == port_1[0]):
-            device_1 = i
-        elif(i.name == port_2[0]):
-            device_2 = i
+    temp = 0
+    for j in mySet.Devices:
+        if temp == 2:
+            break
+        for i in j:
+            if temp == 2:
+                break
+            if(i.name == port_1[0]):
+                device_1 = i
+                temp+=1
+            elif(i.name == port_2[0]):
+                device_2 = i
+                temp+=1         
     device_1.ports[int(port_1[1])-1] = device_2
     device_2.ports[int(port_2[1])-1] = device_1
-    mySet.mergeNetwork(device_1,device_2)
+    mySet.mergeNetworks(device_1,device_2)
     return
+
 def disconnect(instruction):
     port = instruction[2].split('_')
-    for i in mySet.Devices:
-        if(i.name == port[0]):
-            otherEnd = i.ports[int(port[1])-1].name
-            disconnectOtherEnd(otherEnd, i.name)    #cuando desconecto un cable se desconectan dos dispositivos, este metodo es para desconectar el primer dispositivo del puerto en q se encuentre en el segundo dispositivo
-            i.ports[int(port[1])-1] = None
+    device1_name = port[0]
+    port = int(port[1]) - 1
+
+    device1 = None
+    device2 = None 
+
+    #buscando al dispositivo que contiene al puerto que se envio en la instruccion desconectar
+    mustBreak = False
+    for j in mySet.Devices:
+        if mustBreak:
             break
-    mySet.Father = [x for x in range(len(mySet.Devices))]
-    mySet.Rank = [0]*len(mySet.Devices)
-    DFS()
+        for i in j:
+            if(i.name == device1_name):
+                device1 = i
+                mustBreak = True
+                break
+
+    
+    device2 = device1.ports[port]
+    dfs_disconnect(device1) if device1.states[port] is 'sending' else dfs_disconnect(device2)
+
+    #buscando al primer dispositivo en los puertos del segundo
+    for i in range(len(device2.ports)):
+        if device2.ports[i] is not None and device2.ports[i] == device1:
+            device2.ports[i]=None
+            break
+    device1.ports[port] = None     
+
+    mySet.divideNetwork(device1,device2)
+    
     return
-def disconnectOtherEnd(otherEndName, deviceToDisconnect):
-    for i in mySet.Devices:
-        if(i.name == otherEndName):
-            for j in range(len(i.ports)):
-                if(i.ports[j] != None and i.ports[j].name == deviceToDisconnect):
-                    i.ports[j] = None
 
-def findPortOtherEnd(otherEndName, thisEndName):
-    for i in mySet.Devices:
-        if(i.name == otherEndName):
-            for j in range(len(i.ports)):
-                if(i.ports[j].name == thisEndName):
-                    return j
-    return -1                                        
-
-def DFS():
-    visited = [False]*len(mySet.Devices)
-    for i in mySet.Devices:
-        if not visited[i.id]:
-            DFS_Visit(visited,i)
-def DFS_Visit(visited,v):
-    visited[v.id] = True
-    for i in v.ports:
-        if i is not None and not visited[i.id]:
-            mySet.mergeNetwork(v,i)
-            DFS_Visit(visited,i)
-    
 def send(instruction):
-    sender = None
-    senderName = instruction[2]
+    hostName = instruction[2]
     data = instruction[3]
-    for i in mySet.Devices:
-        if i.name == senderName:
-            sender = i
-            break   
-   
-    bits = []
-    for i in range(len(data)):
-        bits.append(int(data[i]))
-    bits.reverse()
-    for i in bits:
-        sender.dataToSend.append(i)
-    
-    if not wannaSend.count(sender):
-        wannaSend.append(sender)
-
-
-def tempName():                             #si hay alguien para enviar con estado null significa que no esta recibiendo y por tanto puede enviar
-    global actualSendingHosts
-    global wannaSend
-
-    for i in wannaSend:
-        if i.state == "null":
-            actualSendingHosts.append([i,1])
-            i.states[0] = "sending"
-            sendToChannel(i)
-
-def sendToChannel(host):
   
+    for i in mySet.Devices:
+        for j in i:
+            if j.name == hostName:
+                j.dataToSend = [x for x in data]
+                if not sendDevices.count(j):
+                    sendDevices.append(j)
+                
+
+    
 main()
 
 
