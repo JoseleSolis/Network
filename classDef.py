@@ -76,7 +76,3 @@ class Set():
             if i is not None and not self.Visited[i]:
                 DFS_visit(i,formerList)
         
-
-
-
-    
